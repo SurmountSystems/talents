@@ -236,7 +236,7 @@ fn hid_thread() -> Result<(mpsc::Sender<HidJob>, ThreadId), NativeTransportError
     }
     let (tx, rx) = mpsc::channel::<HidJob>();
     let handle = std::thread::Builder::new()
-        .name("coins-ledger-hid".into())
+        .name("talents-ledger-hid".into())
         .spawn(move || {
             for job in rx {
                 job();

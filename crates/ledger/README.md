@@ -1,4 +1,4 @@
-# coins-ledger
+# talents-ledger
 
 Communication library between Rust and Ledger Nano S/X devices
 
@@ -28,7 +28,7 @@ build for `wasm32` targets. The JS/WASM transport shipped in versions before
   - Unlock the device
   - Open the Ethereum application on the device
     - If you don't have the application, [install Ledger Live](https://support.ledger.com/hc/en-us/articles/360006395553) and follow [these instructions](https://support.ledger.com/hc/en-us/articles/360006523674-Install-or-uninstall-apps)
-  - `$ cargo test -p coins-ledger -- --ignored`
+  - `$ cargo test -p talents-ledger -- --ignored`
 
 ## Testing against Speculos
 
@@ -55,7 +55,7 @@ tests run Ledger's [app-boilerplate](https://github.com/LedgerHQ/app-boilerplate
   - On macOS, AirPlay Receiver holds port 5000. Map the API elsewhere, e.g.
     `-p 5001:5000`, and point `SPECULOS_API_URL` at it.
 - Run the tests, with `SPECULOS_MODEL` matching `--model`
-  - `$ SPECULOS_APDU_ADDR=127.0.0.1:9999 SPECULOS_API_URL=http://127.0.0.1:5000 SPECULOS_MODEL=nanosp cargo test -p coins-ledger --features speculos`
+  - `$ SPECULOS_APDU_ADDR=127.0.0.1:9999 SPECULOS_API_URL=http://127.0.0.1:5000 SPECULOS_MODEL=nanosp cargo test -p talents-ledger --features speculos`
 - `$ docker stop speculos`
 
 # License Notes

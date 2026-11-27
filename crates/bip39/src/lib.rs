@@ -9,10 +9,8 @@
 
 //! The bip39 crate is heavily inspired by and reuses code from
 //! [Wagyu](https://github.com/AleoHQ/wagyu) under the [MIT](http://opensource.org/licenses/MIT)
-//! license. The difference being, the underlying extended private keys are generated using the
-//! [bip32](https://github.com/summa-tx/bitcoins-rs/tree/main/bip32) crate, that depends on
-//! [k256](https://docs.rs/k256/0.10.0/k256/index.html) instead of
-//! [libsecp256k1](https://docs.rs/libsecp256k1/0.3.5/secp256k1/).
+//! license. Extended private keys come from talents-bip32. That crate uses
+//! libsecp256k1 through the Rust `secp256k1` crate, which talents-bip32 re-exports.
 
 /// Mnemonic phrases
 pub mod mnemonic;

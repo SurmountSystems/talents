@@ -13,7 +13,7 @@
 //! ```no_run
 //! # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::time::Duration;
-//! use coins_ledger::{
+//! use talents_ledger::{
 //!     CommandBuilder, Model,
 //!     transports::{
 //!         LedgerTransport,

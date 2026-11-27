@@ -2,13 +2,13 @@ use crate::{
     MAX_WORD_BYTES, Wordlist,
     wordlist::{PaddedWord, word_at},
 };
-use coins_bip32::{Bip32Error, path::DerivationPath, xkeys::XPriv};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{CryptoRng, Rng};
 use sha2::{Digest, Sha256, Sha512};
 use std::marker::PhantomData;
 use subtle::{Choice, ConstantTimeEq};
+use talents_bip32::{Bip32Error, path::DerivationPath, xkeys::XPriv};
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};

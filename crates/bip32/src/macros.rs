@@ -1,74 +1,50 @@
 macro_rules! inherit_signer {
     ($struct_name:ident.$attr:ident) => {
-        impl<D> k256::ecdsa::signature::DigestSigner<D, k256::ecdsa::Signature> for $struct_name
-        where
-            D: digest::FixedOutput<OutputSize = k256::elliptic_curve::consts::U32>
-                + Clone
-                + Default
-                + digest::Reset
-                + digest::Update
-                + digest::HashMarker,
-        {
-            fn try_sign_digest<F: Fn(&mut D) -> Result<(), k256::ecdsa::Error>>(
-                &self,
-                f: F,
-            ) -> Result<k256::ecdsa::Signature, k256::ecdsa::Error> {
-                self.$attr.try_sign_digest(f)
-            }
-        }
-
-        impl<D>
-            k256::ecdsa::signature::DigestSigner<
-                D,
-                (k256::ecdsa::Signature, k256::ecdsa::RecoveryId),
-            > for $struct_name
-        where
-            D: digest::FixedOutput<OutputSize = k256::elliptic_curve::consts::U32>
-                + Clone
-                + Default
-                + digest::Reset
-                + digest::Update
-                + digest::HashMarker,
-        {
-            fn try_sign_digest<F: Fn(&mut D) -> Result<(), k256::ecdsa::Error>>(
-                &self,
-                f: F,
-            ) -> Result<(k256::ecdsa::Signature, k256::ecdsa::RecoveryId), k256::ecdsa::Error> {
-                self.$attr.try_sign_digest(f)
-            }
-        }
-
         impl $struct_name {
-            /// Sign a pre-filled hasher. Convenience wrapper for
-            /// [`DigestSigner`](k256::ecdsa::signature::DigestSigner), which takes a closure.
+            /// Sign the digest produced by `fill`. `fill` receives a fresh hasher.
+            pub fn sign_digest<D, F>(&self, fill: F) -> secp256k1::ecdsa::Signature
+            where
+                D: digest::FixedOutput
+                    + digest::OutputSizeUser<OutputSize = digest::consts::U32>
+                    + Default,
+                F: FnOnce(&mut D),
+            {
+                let _ = stringify!($attr);
+                let key: &secp256k1::SecretKey = self.as_ref();
+                crate::curve::sign(key, &crate::curve::fill_digest(fill))
+            }
+
+            /// Sign a pre-filled hasher.
             pub fn sign_hasher<D>(
                 &self,
                 digest: D,
-            ) -> Result<k256::ecdsa::Signature, k256::ecdsa::Error>
+            ) -> Result<secp256k1::ecdsa::Signature, crate::Bip32Error>
             where
-                D: digest::FixedOutput<OutputSize = k256::elliptic_curve::consts::U32>,
+                D: digest::FixedOutput + digest::OutputSizeUser<OutputSize = digest::consts::U32>,
             {
-                use k256::ecdsa::signature::hazmat::PrehashSigner as _;
-                let key: &k256::ecdsa::SigningKey = self.as_ref();
-                key.sign_prehash(&digest.finalize_fixed())
+                let key: &secp256k1::SecretKey = self.as_ref();
+                Ok(crate::curve::sign(
+                    key,
+                    &crate::curve::finalize_digest(digest),
+                ))
             }
 
-            /// Sign the given message digest, returning a signature and recovery ID.
-            /// See [ECDSA docs here](https://docs.rs/ecdsa/latest/ecdsa/struct.SigningKey.html#method.sign_digest_recoverable)
+            /// Sign a pre-filled hasher and return the recovery id.
             pub fn sign_digest_recoverable<D>(
                 &self,
                 digest: D,
-            ) -> Result<(k256::ecdsa::Signature, k256::ecdsa::RecoveryId), k256::ecdsa::Error>
+            ) -> Result<
+                (secp256k1::ecdsa::Signature, secp256k1::ecdsa::RecoveryId),
+                crate::Bip32Error,
+            >
             where
-                D: digest::FixedOutput<OutputSize = k256::elliptic_curve::consts::U32>
-                    + Clone
-                    + Default
-                    + digest::Reset
-                    + digest::Update
-                    + digest::HashMarker,
+                D: digest::FixedOutput + digest::OutputSizeUser<OutputSize = digest::consts::U32>,
             {
-                let key: &k256::ecdsa::SigningKey = self.as_ref();
-                Ok(key.sign_digest_recoverable(digest))
+                let key: &secp256k1::SecretKey = self.as_ref();
+                Ok(crate::curve::sign_with_recovery_id(
+                    key,
+                    &crate::curve::finalize_digest(digest),
+                ))
             }
         }
     };
@@ -77,40 +53,42 @@ macro_rules! inherit_signer {
 macro_rules! inherit_verifier {
     ($struct_name:ident.$attr:ident) => {
         impl $struct_name {
-            /// Get the compressed sec1 representation of the public key.
+            /// Compressed SEC1 encoding of the public key (33 bytes).
             pub fn to_sec1_bytes(&self) -> [u8; 33] {
-                let mut data = [0u8; 33];
-                let generic_array = self.$attr.to_sec1_bytes();
-                data.copy_from_slice(&generic_array);
-                data
+                let _ = stringify!($attr);
+                let key: &secp256k1::PublicKey = self.as_ref();
+                crate::curve::compressed_serialize(key)
             }
 
-            /// Verify a signature against a pre-filled hasher. Convenience wrapper for
-            /// [`DigestVerifier`](k256::ecdsa::signature::DigestVerifier), which takes a closure.
+            /// Verify `signature` against the digest produced by `fill`.
+            pub fn verify_digest<D, F>(
+                &self,
+                fill: F,
+                signature: &secp256k1::ecdsa::Signature,
+            ) -> Result<(), crate::Bip32Error>
+            where
+                D: digest::FixedOutput
+                    + digest::OutputSizeUser<OutputSize = digest::consts::U32>
+                    + Default,
+                F: FnOnce(&mut D) -> Result<(), crate::Bip32Error>,
+            {
+                let mut hasher = D::default();
+                fill(&mut hasher)?;
+                let key: &secp256k1::PublicKey = self.as_ref();
+                crate::curve::verify(key, &crate::curve::finalize_digest(hasher), signature)
+            }
+
+            /// Verify `signature` against a pre-filled hasher.
             pub fn verify_hasher<D>(
                 &self,
                 digest: D,
-                signature: &k256::ecdsa::Signature,
-            ) -> Result<(), k256::ecdsa::Error>
+                signature: &secp256k1::ecdsa::Signature,
+            ) -> Result<(), crate::Bip32Error>
             where
-                D: digest::FixedOutput<OutputSize = k256::elliptic_curve::consts::U32>,
+                D: digest::FixedOutput + digest::OutputSizeUser<OutputSize = digest::consts::U32>,
             {
-                use k256::ecdsa::signature::hazmat::PrehashVerifier as _;
-                let key: &k256::ecdsa::VerifyingKey = self.as_ref();
-                key.verify_prehash(&digest.finalize_fixed(), signature)
-            }
-        }
-
-        impl<D> k256::ecdsa::signature::DigestVerifier<D, k256::ecdsa::Signature> for $struct_name
-        where
-            D: digest::Digest + digest::FixedOutput<OutputSize = k256::elliptic_curve::consts::U32>,
-        {
-            fn verify_digest<F: Fn(&mut D) -> Result<(), k256::ecdsa::Error>>(
-                &self,
-                f: F,
-                signature: &k256::ecdsa::Signature,
-            ) -> Result<(), k256::ecdsa::Error> {
-                self.$attr.verify_digest(f, signature)
+                let key: &secp256k1::PublicKey = self.as_ref();
+                crate::curve::verify(key, &crate::curve::finalize_digest(digest), signature)
             }
         }
     };

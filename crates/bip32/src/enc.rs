@@ -5,9 +5,8 @@ use crate::{
     primitives::{ChainCode, Hint, KeyFingerprint, XKeyInfo},
     xkeys::{XPriv, XPub},
 };
-use coins_core::hashes::{Digest, Hash256};
-use k256::ecdsa;
 use std::borrow::Cow;
+use talents_core::hashes::{Digest, Hash256};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Serialized length of an extended key, private or public: version (4), depth
@@ -235,7 +234,7 @@ where
 
     let mut buf = Zeroizing::new([0u8; 32]);
     reader.read_exact(buf.as_mut())?;
-    let key = ecdsa::SigningKey::from_slice(buf.as_ref())?;
+    let key = crate::curve::parse_secret(&buf)?;
 
     Ok(XPriv {
         key,
@@ -265,7 +264,7 @@ where
 
     let mut buf = [0u8; 33];
     reader.read_exact(&mut buf)?;
-    let key = ecdsa::VerifyingKey::from_sec1_bytes(&buf)?;
+    let key = crate::curve::parse_public(&buf)?;
 
     Ok(XPub {
         key,
@@ -323,9 +322,9 @@ impl XPriv {
         let version_bytes = version.to_be_bytes();
         writer.write_all(&version_bytes)?;
         let details = write_key_details(writer, &self.xkey_info)?;
-        let key_bytes = Zeroizing::new(self.key.to_bytes());
+        let key_bytes = Zeroizing::new(self.key.to_secret_bytes());
         writer.write_all(&[0])?;
-        writer.write_all(&key_bytes)?;
+        writer.write_all(key_bytes.as_slice())?;
         Ok(version_bytes.len() + details + 1 + key_bytes.len())
     }
 
@@ -354,7 +353,7 @@ impl XPriv {
     /// The result is zeroized on drop.
     ///
     /// ```
-    /// use coins_bip32::{Bip32Error, xkeys::XPriv};
+    /// use talents_bip32::{Bip32Error, xkeys::XPriv};
     /// # fn main() -> Result<(), Bip32Error> {
     /// let xpriv_str = "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi";
     ///
@@ -377,7 +376,7 @@ impl XPriv {
     /// [`Self::from_base58_with`].
     ///
     /// ```
-    /// use coins_bip32::{Bip32Error, xkeys::XPriv};
+    /// use talents_bip32::{Bip32Error, xkeys::XPriv};
     /// # fn main() -> Result<(), Bip32Error> {
     /// let xpriv_str = "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi";
     ///
@@ -412,7 +411,7 @@ impl XPub {
         let version_bytes = version.to_be_bytes();
         writer.write_all(&version_bytes)?;
         let details = write_key_details(writer, &self.xkey_info)?;
-        let key_bytes = self.key.to_sec1_bytes();
+        let key_bytes = self.key.serialize();
         writer.write_all(&key_bytes)?;
         Ok(version_bytes.len() + details + key_bytes.len())
     }
@@ -441,7 +440,7 @@ impl XPub {
     /// Serialize the xpub to base58check, using its network's version bytes.
     ///
     /// ```
-    /// use coins_bip32::{Bip32Error, xkeys::XPub};
+    /// use talents_bip32::{Bip32Error, xkeys::XPub};
     /// # fn main() -> Result<(), Bip32Error> {
     /// let xpub_str = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y";
     ///
@@ -464,7 +463,7 @@ impl XPub {
     /// [`Self::from_base58_with`].
     ///
     /// ```
-    /// use coins_bip32::{Bip32Error, xkeys::XPub};
+    /// use talents_bip32::{Bip32Error, xkeys::XPub};
     /// # fn main() -> Result<(), Bip32Error> {
     /// let xpub_str = "xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y";
     ///
@@ -529,9 +528,9 @@ impl serde::de::Visitor<'_> for XPubVisitor<'_> {
 /// use with `#[serde(deserialize_with)]`.
 ///
 /// ```
-/// use coins_bip32::{enc::{NetworkVersions, deserialize_xpriv}, xkeys::XPriv};
+/// use talents_bip32::{enc::{NetworkVersions, deserialize_xpriv}, xkeys::XPriv};
 /// use serde::{Deserialize, Deserializer};
-/// use coins_bip32::primitives::Hint;
+/// use talents_bip32::primitives::Hint;
 ///
 /// const LITECOIN: NetworkVersions = NetworkVersions {
 ///     priv_legacy: 0x019d_9cfe,
@@ -569,9 +568,9 @@ pub fn deserialize_xpriv<'de, D: serde::Deserializer<'de>>(
 /// use with `#[serde(deserialize_with)]`.
 ///
 /// ```
-/// use coins_bip32::{enc::{NetworkVersions, deserialize_xpub}, xkeys::{XPriv, XPub}};
+/// use talents_bip32::{enc::{NetworkVersions, deserialize_xpub}, xkeys::{XPriv, XPub}};
 /// use serde::{Deserialize, Deserializer};
-/// use coins_bip32::primitives::Hint;
+/// use talents_bip32::primitives::Hint;
 ///
 /// const LITECOIN: NetworkVersions = NetworkVersions {
 ///     priv_legacy: 0x019d_9cfe,
@@ -642,12 +641,12 @@ struct DerivedXPubRepr<'a> {
 /// with `#[serde(deserialize_with)]`.
 ///
 /// ```
-/// use coins_bip32::{
+/// use talents_bip32::{
 ///     derived::DerivedXPriv,
 ///     enc::{NetworkVersions, deserialize_derived_xpriv},
 /// };
 /// use serde::{Deserialize, Deserializer};
-/// use coins_bip32::primitives::Hint;
+/// use talents_bip32::primitives::Hint;
 ///
 /// const LITECOIN: NetworkVersions = NetworkVersions {
 ///     priv_legacy: 0x019d_9cfe,
@@ -691,12 +690,12 @@ pub fn deserialize_derived_xpriv<'de, D: serde::Deserializer<'de>>(
 /// with `#[serde(deserialize_with)]`.
 ///
 /// ```
-/// use coins_bip32::{
+/// use talents_bip32::{
 ///     derived::{DerivedXPriv, DerivedXPub},
 ///     enc::{NetworkVersions, deserialize_derived_xpub},
 /// };
 /// use serde::{Deserialize, Deserializer};
-/// use coins_bip32::primitives::Hint;
+/// use talents_bip32::primitives::Hint;
 ///
 /// const LITECOIN: NetworkVersions = NetworkVersions {
 ///     priv_legacy: 0x019d_9cfe,

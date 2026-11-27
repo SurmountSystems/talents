@@ -5,20 +5,17 @@ pub use crate::path::KeyDerivation;
 pub use crate::primitives::*;
 pub use crate::xkeys::{Parent, XPriv, XPub};
 
-/// Re-exported signer traits
-pub use k256;
-pub use k256::{
-    ecdsa::{
-        RecoveryId, Signature, SigningKey, VerifyingKey,
-        signature::{DigestSigner as _, DigestVerifier as _},
-    },
-    elliptic_curve::sec1::ToSec1Point as _,
+/// Re-exported secp256k1 types.
+pub use secp256k1;
+pub use secp256k1::{
+    PublicKey, SecretKey,
+    ecdsa::{RecoveryId, Signature},
 };
 
 /// shortcut for easy usage
-pub fn fingerprint_of(k: &VerifyingKey) -> KeyFingerprint {
-    use coins_core::hashes::Digest;
-    let digest = coins_core::hashes::Hash160::digest(k.to_sec1_bytes());
+pub fn fingerprint_of(k: &PublicKey) -> KeyFingerprint {
+    use talents_core::hashes::Digest;
+    let digest = talents_core::hashes::Hash160::digest(k.serialize());
     let mut fingerprint = [0u8; 4];
     fingerprint.copy_from_slice(&digest[..4]);
     fingerprint.into()

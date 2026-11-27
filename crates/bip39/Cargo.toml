@@ -1,12 +1,10 @@
 [package]
-name = "coins-bip39"
+name = "talents-bip39"
 description = "BIP39 implementation for coins"
 keywords = ["bip39", "coins", "crypto", "wallet"]
 categories = ["cryptography::cryptocurrencies"]
 authors = [
-    "Rohit Narurkar <rohit.narurkar@protonmail.com>",
-    "James Prestwich <james@prestwi.ch>",
-    "0xYYY <0xYYY@pm.me>",
+    "Hunter Beast <hunter@surmount.systems>",
 ]
 
 version.workspace =  true
@@ -16,7 +14,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-coins-bip32.workspace = true
+talents-bip32.workspace = true
 
 hmac.workspace = true
 pbkdf2.workspace = true

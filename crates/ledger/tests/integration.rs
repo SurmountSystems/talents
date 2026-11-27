@@ -1,6 +1,6 @@
 use serial_test::serial;
 
-use coins_ledger::{Ledger, common::*, transports::native::hid};
+use talents_ledger::{Ledger, common::*, transports::native::hid};
 
 #[ignore]
 #[test]

@@ -399,7 +399,7 @@ fn hid_thread_is_one_named_thread_for_the_whole_process() {
     assert_eq!(first, again, "every call runs on the same thread");
     assert_ne!(first, std::thread::current().id());
     let name = on_hid_thread(|| std::thread::current().name().map(str::to_owned)).unwrap();
-    assert_eq!(name.as_deref(), Some("coins-ledger-hid"));
+    assert_eq!(name.as_deref(), Some("talents-ledger-hid"));
 }
 
 #[test]

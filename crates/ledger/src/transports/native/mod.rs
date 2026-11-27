@@ -78,7 +78,7 @@ impl HidTransport {
 
         // Spawn a thread that drives the blocking transport.
         std::thread::Builder::new()
-            .name("coins-ledger-io".into())
+            .name("talents-ledger-io".into())
             .spawn(move || {
                 while let Some(ApduExchange {
                     command,

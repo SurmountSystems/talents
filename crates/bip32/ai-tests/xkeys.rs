@@ -1,6 +1,7 @@
 //! AI-written tests for extended keys. A submodule of `src/xkeys.rs`.
 
 use super::*;
+use crate::Bip32Error;
 use crate::enc::TESTNET;
 
 /// BIP-32 test vector 1, master xprv.
@@ -74,4 +75,34 @@ fn keys_deserialize_from_owned_string_sources() {
         serde_json::from_reader::<_, XPub>(&pub_bytes[..]).unwrap(),
         xpub
     );
+}
+
+/// Secret scalar 1. Not produced by running the backend.
+const SECRET_ONE: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+];
+
+/// secp256k1 order minus one. Adding it to scalar 1 is 0 mod n.
+const ORDER_MINUS_ONE: [u8; 32] = [
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+    0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x40,
+];
+
+#[test]
+fn out_of_range_tweak_or_zero_key_returns_bad_tweak() {
+    let secret = crate::curve::parse_secret(&SECRET_ONE).unwrap();
+    let out_of_range = [0xff; 32];
+    assert!(matches!(
+        crate::curve::tweak_secret(&secret, &out_of_range),
+        Err(Bip32Error::BadTweak)
+    ));
+    assert!(matches!(
+        crate::curve::tweak_secret(&secret, &ORDER_MINUS_ONE),
+        Err(Bip32Error::BadTweak)
+    ));
+    let public = secret.public_key();
+    assert!(matches!(
+        crate::curve::tweak_public(&public, &out_of_range),
+        Err(Bip32Error::BadTweak)
+    ));
 }

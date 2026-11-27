@@ -1,7 +1,7 @@
-# Coins Core
+# Talents Core
 
-`coins-core` contains utilities and traits used by the `coins-bip32` and
-`coins-bip39` crates.
+`talents-core` contains utilities and traits used by the `talents-bip32` and
+`talents-bip39` crates.
 
 ## Crate Layout
 

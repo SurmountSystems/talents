@@ -6,7 +6,7 @@ use crate::{common::ApduBuffer, errors::LedgerError};
 /// default to zero.
 ///
 /// ```
-/// # use coins_ledger::common::CommandBuilder;
+/// # use talents_ledger::common::CommandBuilder;
 /// let cmd = CommandBuilder::new()
 ///     .cla(0xe0)
 ///     .ins(0x06)

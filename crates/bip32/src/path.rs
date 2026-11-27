@@ -103,12 +103,12 @@ impl DerivationPath {
     }
 
     /// Returns `True` if there are no indices in the path
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
     /// The number of derivations in the path
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
 

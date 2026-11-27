@@ -29,8 +29,8 @@
 //!
 //! # Usage
 //! ```
-//! use coins_bip32::prelude::*;
-//! use coins_core::hashes::{Digest, Hash256};
+//! use talents_bip32::prelude::*;
+//! use talents_core::hashes::{Digest, Hash256};
 //!
 //! # fn main() -> Result<(), Bip32Error> {
 //! let msg = b"hello world";
@@ -40,12 +40,21 @@
 //! let xpriv: XPriv = xpriv_str.parse()?;
 //!
 //! let child_xpriv = xpriv.derive_child(33)?;
-//! let (sig, _recovery_id): (Signature, RecoveryId) =
-//!     child_xpriv.sign_digest(|d: &mut Hash256| d.update(msg));
+//! let sig = child_xpriv.sign_digest(|d: &mut Hash256| {
+//!     d.update(msg);
+//! });
+//! let (_sig, _recovery_id) =
+//!     child_xpriv.sign_digest_recoverable(Hash256::new_with_prefix(msg))?;
 //!
 //! // Signing key types are associated with verifying key types. You can always derive a pubkey
 //! let child_xpub = child_xpriv.verify_key();
-//! child_xpub.verify_digest(|d: &mut Hash256| Ok(d.update(msg)), &sig)?;
+//! child_xpub.verify_digest(
+//!     |d: &mut Hash256| {
+//!         d.update(msg);
+//!         Ok(())
+//!     },
+//!     &sig,
+//! )?;
 //!
 //! // Or sign and verify a pre-filled hasher
 //! let digest = Hash256::new_with_prefix(msg);
@@ -57,7 +66,7 @@
 //! # }
 //! ```
 
-pub use k256::ecdsa;
+mod curve;
 
 #[macro_use]
 pub(crate) mod macros;
@@ -93,7 +102,3 @@ pub const CURVE_ORDER: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
     0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
 ];
-
-// Enables `std` on primeorder for k256's `precomputed-tables`, without
-// k256's `std` (which pulls in getrandom).
-use primeorder as _;

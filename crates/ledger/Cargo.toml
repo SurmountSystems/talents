@@ -1,9 +1,7 @@
 [package]
-name = "coins-ledger"
+name = "talents-ledger"
 authors = [
-    "Summa <team@summa.one>",
-    "James Prestwich <james@prestwi.ch>",
-    "Zondax GmbH <info@zondax.ch>",
+    "Hunter Beast <hunter@surmount.systems>",
 ]
 categories = ["authentication", "cryptography"]
 keywords = ["ledger", "apdu", "cryptocurrency"]
@@ -18,12 +16,12 @@ repository.workspace = true
 [dependencies]
 hex.workspace = true
 thiserror.workspace = true
-tracing = "0.1"
-tokio = { version = "1.34", features = ["sync"] }
+tracing = "0.1.44"
+tokio = { version = "1.54.1", features = ["sync"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "stream"], optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
-futures-util = { version = "0.3", default-features = false, optional = true }
+futures-util = { version = "0.3.34", default-features = false, optional = true }
 
 [features]
 # The Speculos emulator transport.
@@ -43,14 +41,14 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 # On Linux the default backend is hidraw, as in Ledger's own tooling.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-hidapi = "2.6"
+hidapi = "2.6.7"
 
 # Termux hands over an already-open USB file descriptor, which only the libusb
 # backend can wrap. The two target tables are disjoint so the backends never
 # unify.
 [target.'cfg(target_os = "android")'.dependencies]
-hidapi = { version = "2.6", default-features = false, features = ["linux-static-libusb"] }
+hidapi = { version = "2.6.7", default-features = false, features = ["linux-static-libusb"] }
 
 [dev-dependencies]
-tokio = { version = "1.34", features = ["rt", "macros"] }
-serial_test = "2"
+tokio = { version = "1.54.1", features = ["rt", "macros"] }
+serial_test = "4.0.1"
