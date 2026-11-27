@@ -81,7 +81,14 @@ update-locks:
     nice -n 19 nix flake update --option cores "$half" --max-jobs "$half"
     nice -n 19 cargo update
 
-# Package every public crate. No arguments: dry-run. Pass --upload to upload.
+# Check every public crate without uploading, in one cargo publish.
+publish-dry-run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/publish.sh --dry-run
+
+# No arguments: do not package or upload.
+# Use just publish-dry-run to check. Use just publish --upload to upload.
 publish *args:
     #!/usr/bin/env bash
     set -euo pipefail
