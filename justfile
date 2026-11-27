@@ -1,4 +1,4 @@
-# Local and remote Nix checks for Talents.
+# Local and remote Nix checks for Talents, plus lock and publish recipes.
 # Core counts are read at runtime. Nothing here is a fixed host size.
 
 check:
@@ -46,3 +46,43 @@ check-remote:
       --max-jobs 0 \
       --builders "$spec" \
       --option builders-use-substitutes true
+
+# Fail if Cargo.lock or flake.lock would change. Does not write either lock.
+check-locks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    half=$(( $(nproc) / 2 ))
+    if (( half < 1 )); then
+      half=1
+    fi
+    echo "check-locks: cargo metadata --locked"
+    nice -n 19 cargo metadata --locked --format-version 1 >/dev/null
+    echo "check-locks: nix flake metadata --no-update-lock-file"
+    nice -n 19 nix flake metadata --no-update-lock-file --option cores "$half" --max-jobs "$half" .
+
+# Add missing flake.lock entries. Does not bump inputs that are already locked.
+fill-locks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    half=$(( $(nproc) / 2 ))
+    if (( half < 1 )); then
+      half=1
+    fi
+    nice -n 19 nix flake lock --option cores "$half" --max-jobs "$half"
+
+# Bump every flake input and refresh Cargo.lock.
+update-locks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    half=$(( $(nproc) / 2 ))
+    if (( half < 1 )); then
+      half=1
+    fi
+    nice -n 19 nix flake update --option cores "$half" --max-jobs "$half"
+    nice -n 19 cargo update
+
+# Package every public crate. No arguments: dry-run. Pass --upload to upload.
+publish *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/publish.sh {{ args }}
