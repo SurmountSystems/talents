@@ -1,12 +1,9 @@
-use coins_core::hashes::{Hash160, Hash160Digest, MarkedDigest, MarkedDigestOutput};
 use hmac::{Hmac, KeyInit, Mac};
-use k256::{ecdsa, elliptic_curve::sec1::FromSec1Point};
+use secp256k1::{PublicKey, SecretKey};
 use sha2::Sha512;
-use std::{
-    convert::{TryFrom, TryInto},
-    ops::{AddAssign, Mul},
-};
+use std::convert::TryInto;
 use subtle::{Choice, ConstantTimeEq};
+use talents_core::hashes::{Hash160, Hash160Digest, MarkedDigest, MarkedDigestOutput};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{
@@ -19,20 +16,22 @@ use crate::{
 /// The BIP32-defined seed used for derivation of the root node.
 pub const SEED: &[u8; 12] = b"Bitcoin seed";
 
-fn hmac_and_split(
-    seed: &[u8],
-    data: &[u8],
-) -> Result<(Zeroizing<k256::NonZeroScalar>, ChainCode), Bip32Error> {
+fn hmac_and_split(seed: &[u8], data: &[u8]) -> (Zeroizing<[u8; 32]>, ChainCode) {
     let mut mac = Hmac::<Sha512>::new_from_slice(seed).expect("key length is ok");
     mac.update(data);
-    let result = Zeroizing::new(mac.finalize().into_bytes());
+    // digest 0.11's `Array` does not implement `Zeroize`, so copy into owned
+    // buffers and wipe the hasher output in place.
+    let mut output = mac.finalize().into_bytes();
+    let bytes = output.as_slice();
 
-    let left = Zeroizing::new(k256::NonZeroScalar::try_from(&result[..32])?);
+    let mut left = Zeroizing::new([0u8; 32]);
+    left.copy_from_slice(&bytes[..32]);
 
     let mut chain_code = ChainCode([0u8; 32]);
-    chain_code.0.copy_from_slice(&result[32..]);
+    chain_code.0.copy_from_slice(&bytes[32..]);
+    output.as_mut_slice().zeroize();
 
-    Ok((left, chain_code))
+    (left, chain_code)
 }
 
 /// A Parent key can be used to derive children.
@@ -67,14 +66,16 @@ pub trait Parent: Sized + Clone {
 ///
 /// The signing key and chain code are zeroized on drop, and comparisons are constant time.
 pub struct XPriv {
-    pub(crate) key: ecdsa::SigningKey,
+    pub(crate) key: SecretKey,
     pub(crate) xkey_info: XKeyInfo,
 }
 
 impl Drop for XPriv {
     fn drop(&mut self) {
-        // The signing key zeroizes itself. The chain code is not secret on its own, but together
-        // with the xpub and any non-hardened child private key it reveals this private key.
+        // secp256k1::SecretKey does not zeroize on drop. Erase it here. The chain code is not
+        // secret on its own, but together with the xpub and any non-hardened child private key
+        // it reveals this private key.
+        self.key.non_secure_erase();
         self.xkey_info.chain_code.zeroize();
     }
 }
@@ -86,7 +87,9 @@ impl ConstantTimeEq for XPriv {
         let public = self.xkey_info.depth == other.xkey_info.depth
             && self.xkey_info.parent == other.xkey_info.parent
             && self.xkey_info.index == other.xkey_info.index;
-        self.key.ct_eq(&other.key)
+        self.key
+            .as_secret_bytes()
+            .ct_eq(other.key.as_secret_bytes())
             & self.xkey_info.chain_code.ct_eq(&other.xkey_info.chain_code)
             & Choice::from(public as u8)
     }
@@ -101,7 +104,7 @@ impl PartialEq for XPriv {
 impl Clone for XPriv {
     fn clone(&self) -> Self {
         Self {
-            key: self.key.clone(),
+            key: self.key,
             xkey_info: self.xkey_info,
         }
     }
@@ -134,15 +137,15 @@ impl AsRef<XKeyInfo> for XPriv {
     }
 }
 
-impl AsRef<ecdsa::SigningKey> for XPriv {
-    fn as_ref(&self) -> &ecdsa::SigningKey {
+impl AsRef<SecretKey> for XPriv {
+    fn as_ref(&self) -> &SecretKey {
         &self.key
     }
 }
 
 impl XPriv {
     /// Instantiate a new XPriv.
-    pub const fn new(key: ecdsa::SigningKey, xkey_info: XKeyInfo) -> Self {
+    pub const fn new(key: SecretKey, xkey_info: XKeyInfo) -> Self {
         Self { key, xkey_info }
     }
 
@@ -155,7 +158,7 @@ impl XPriv {
     /// Derive the associated XPub
     pub fn verify_key(&self) -> XPub {
         XPub {
-            key: self.key.verifying_key().to_owned(),
+            key: self.key.public_key(),
             xkey_info: self.xkey_info,
         }
     }
@@ -194,13 +197,9 @@ impl XPriv {
             return Err(Bip32Error::SeedTooShort);
         }
         let parent = KeyFingerprint([0u8; 4]);
-        let (key, chain_code) = hmac_and_split(hmac_key, data)?;
-        if bool::from(key.is_zero()) {
-            // This can only be tested by mocking hmac_and_split
-            return Err(Bip32Error::InvalidKey);
-        }
-
-        let key = ecdsa::SigningKey::from(*key);
+        let (left, chain_code) = hmac_and_split(hmac_key, data);
+        // IL == 0 or IL >= n. SecretKey::from_secret_bytes rejects both.
+        let key = crate::curve::parse_secret(&left).map_err(|_| Bip32Error::InvalidKey)?;
 
         Ok(XPriv {
             key,
@@ -250,31 +249,28 @@ impl Parent for XPriv {
     fn derive_child(&self, index: u32) -> Result<Self, Bip32Error> {
         let hardened = index >= BIP32_HARDEN;
 
-        let key: &ecdsa::SigningKey = self.as_ref();
+        let key: &SecretKey = self.as_ref();
 
         // `0x00 || privkey || index` for hardened children, `pubkey || index` otherwise.
         let mut data = Zeroizing::new([0u8; 37]);
         if hardened {
-            data[1..33].copy_from_slice(&Zeroizing::new(key.to_bytes()));
+            let secret_bytes = Zeroizing::new(key.to_secret_bytes());
+            data[1..33].copy_from_slice(&secret_bytes[..]);
         } else {
-            data[..33].copy_from_slice(&key.verifying_key().to_sec1_bytes());
+            data[..33].copy_from_slice(&key.public_key().serialize());
         };
         data[33..].copy_from_slice(&index.to_be_bytes());
 
-        let res = hmac_and_split(&self.xkey_info.chain_code.0, &*data);
-        let (tweak, chain_code) = match res {
-            Ok((tweak, chain_code)) => (tweak, chain_code),
-            _ => return self.derive_child(index + 1),
-        };
-
-        let tweaked = Zeroizing::new(tweak.add(key.as_nonzero_scalar()));
-
-        let tweaked: Zeroizing<k256::NonZeroScalar> = Zeroizing::new(
-            Option::from(k256::NonZeroScalar::new(*tweaked)).ok_or(Bip32Error::BadTweak)?,
-        );
+        let (tweak, chain_code) = hmac_and_split(&self.xkey_info.chain_code.0, &*data);
+        // IL == 0 or IL >= n: BIP-32 skips to the next index.
+        if !crate::curve::il_usable(&tweak) {
+            return self.derive_child(index + 1);
+        }
+        // SecretKey::add_tweak. A sum of zero is BadTweak.
+        let key = crate::curve::tweak_secret(key, &tweak)?;
 
         Ok(Self {
-            key: ecdsa::SigningKey::from(*tweaked),
+            key,
             xkey_info: XKeyInfo {
                 depth: self.xkey_info.depth + 1,
                 parent: self.fingerprint(),
@@ -290,7 +286,7 @@ impl Parent for XPriv {
 #[derive(Copy)]
 /// A BIP32 eXtended Public key
 pub struct XPub {
-    pub(crate) key: ecdsa::VerifyingKey,
+    pub(crate) key: PublicKey,
     pub(crate) xkey_info: XKeyInfo,
 }
 
@@ -305,7 +301,7 @@ impl Clone for XPub {
 impl std::fmt::Debug for XPub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("XPub")
-            .field("public key", &self.key.to_sec1_bytes())
+            .field("public key", &self.key.serialize())
             .field("key fingerprint", &self.fingerprint())
             .field("key info", &self.xkey_info)
             .finish()
@@ -324,15 +320,15 @@ impl AsRef<XKeyInfo> for XPub {
     }
 }
 
-impl AsRef<ecdsa::VerifyingKey> for XPub {
-    fn as_ref(&self) -> &ecdsa::VerifyingKey {
+impl AsRef<PublicKey> for XPub {
+    fn as_ref(&self) -> &PublicKey {
         &self.key
     }
 }
 
 impl XPub {
     /// Instantiate a new XPub
-    pub const fn new(key: ecdsa::VerifyingKey, xkey_info: XKeyInfo) -> Self {
+    pub const fn new(key: PublicKey, xkey_info: XKeyInfo) -> Self {
         Self { key, xkey_info }
     }
 
@@ -353,7 +349,7 @@ impl XPub {
 
     /// Return the bitcoin HASH160 of the serialized public key
     pub fn pubkey_hash160(&self) -> Hash160Digest {
-        Hash160::digest_marked(self.key.to_sec1_bytes().as_ref())
+        Hash160::digest_marked(self.key.serialize().as_ref())
     }
 
     /// Construct a BIP-328 "synthetic xpub" root from a MuSig2 plain aggregate public key.
@@ -366,7 +362,7 @@ impl XPub {
     ///
     /// Signing for derived children requires the `I_L` tweak from each derivation step, which
     /// [`Parent::derive_child`] does not expose. Open an issue if you need access to the tweaks.
-    pub const fn musig2_synthetic_root(key: ecdsa::VerifyingKey) -> Self {
+    pub const fn musig2_synthetic_root(key: PublicKey) -> Self {
         Self {
             key,
             xkey_info: XKeyInfo {
@@ -403,29 +399,18 @@ impl Parent for XPub {
         if index >= BIP32_HARDEN {
             return Err(Bip32Error::HardenedDerivationFailed);
         }
-        let mut data = vec![];
-        // secp256k1 points are converted to compressed form
-        // https://github.com/RustCrypto/elliptic-curves/blob/3ee0ba1aa5bb74777928c21bb198d2a696f0dd9d/k256/src/lib.rs#L98
-        data.extend(self.key.to_sec1_bytes().iter());
-        data.extend(index.to_be_bytes());
+        let mut data = [0u8; 37];
+        // BIP-32 serializes the parent public key in compressed SEC1 form.
+        data[..33].copy_from_slice(&self.key.serialize());
+        data[33..].copy_from_slice(&index.to_be_bytes());
 
-        let res = hmac_and_split(&self.xkey_info.chain_code.0, &data);
-
-        let (tweak, chain_code) = match res {
-            Ok((tweak, chain_code)) => (tweak, chain_code),
-            _ => return self.derive_child(index + 1),
-        };
-
-        if bool::from(tweak.is_zero()) {
+        let (tweak, chain_code) = hmac_and_split(&self.xkey_info.chain_code.0, &data);
+        // IL == 0 or IL >= n: BIP-32 skips to the next index.
+        if !crate::curve::il_usable(&tweak) {
             return self.derive_child(index + 1);
         }
-
-        let parent_key =
-            k256::ProjectivePoint::from_sec1_point(&self.key.to_sec1_point(true)).unwrap();
-        let mut tweak_point = k256::ProjectivePoint::GENERATOR.mul(**tweak);
-        tweak_point.add_assign(parent_key);
-
-        let key = ecdsa::VerifyingKey::from_affine(tweak_point.to_affine())?;
+        // PublicKey::add_exp_tweak. The point at infinity is BadTweak.
+        let key = crate::curve::tweak_public(&self.key, &tweak)?;
         Ok(Self {
             key,
             xkey_info: XKeyInfo {
@@ -496,8 +481,8 @@ impl<'de> serde::Deserialize<'de> for XPriv {
 mod test {
     use super::*;
     use crate::primitives::*;
-    use coins_core::hashes::Hash256;
-    use k256::ecdsa::signature::{DigestSigner, DigestVerifier};
+    use secp256k1::{PublicKey, ecdsa};
+    use talents_core::hashes::Hash256;
 
     use hex;
 
@@ -518,9 +503,12 @@ mod test {
         let deser_xpriv = XPriv::from_base58(&d.xpriv).unwrap();
         let deser_xpub = XPub::from_base58(&d.xpub).unwrap();
 
-        assert_eq!(&xpriv.key.to_bytes(), &deser_xpriv.key.to_bytes());
+        assert_eq!(
+            &xpriv.key.to_secret_bytes(),
+            &deser_xpriv.key.to_secret_bytes()
+        );
         assert_eq!(xpriv.to_base58().as_str(), d.xpriv);
-        assert_eq!(&xpub.key.to_sec1_bytes(), &deser_xpub.key.to_sec1_bytes());
+        assert_eq!(&xpub.key.serialize(), &deser_xpub.key.serialize());
         assert_eq!(xpub.to_base58(), d.xpub);
     }
 
@@ -528,7 +516,7 @@ mod test {
     fn xpriv_debug_redacts_secrets() {
         let xpriv = XPriv::root_from_seed(&[0xab; 32], None).unwrap();
         let debug = format!("{xpriv:?}");
-        let key_hex = hex::encode(xpriv.key.to_bytes());
+        let key_hex = hex::encode(xpriv.key.to_secret_bytes());
         let chain_code_dec = format!("{:?}", xpriv.xkey_info.chain_code.0);
         assert!(!debug.contains(&key_hex));
         assert!(!debug.contains(&chain_code_dec));
@@ -560,9 +548,12 @@ mod test {
         let deser_xpub = XPub::from_base58(expected_xpub).unwrap();
         let deser_xpriv = XPriv::from_base58(expected_xpriv).unwrap();
 
-        assert_eq!(&xpriv.key.to_bytes(), &deser_xpriv.key.to_bytes());
+        assert_eq!(
+            &xpriv.key.to_secret_bytes(),
+            &deser_xpriv.key.to_secret_bytes()
+        );
         assert_eq!(xpriv.to_base58().as_str(), expected_xpriv);
-        assert_eq!(&xpub.key.to_sec1_bytes(), &deser_xpub.key.to_sec1_bytes());
+        assert_eq!(&xpub.key.serialize(), &deser_xpub.key.serialize());
         assert_eq!(xpub.to_base58(), expected_xpub);
 
         let descendants = [
@@ -611,9 +602,12 @@ mod test {
         let deser_xpub = XPub::from_base58(expected_xpub).unwrap();
         let deser_xpriv = XPriv::from_base58(expected_xpriv).unwrap();
 
-        assert_eq!(&xpriv.key.to_bytes(), &deser_xpriv.key.to_bytes());
+        assert_eq!(
+            &xpriv.key.to_secret_bytes(),
+            &deser_xpriv.key.to_secret_bytes()
+        );
         assert_eq!(xpriv.to_base58().as_str(), expected_xpriv);
-        assert_eq!(&xpub.key.to_sec1_bytes(), &deser_xpub.key.to_sec1_bytes());
+        assert_eq!(&xpub.key.serialize(), &deser_xpub.key.serialize());
         assert_eq!(xpub.to_base58(), expected_xpub);
 
         let descendants = [
@@ -662,9 +656,12 @@ mod test {
         let deser_xpub = XPub::from_base58(expected_xpub).unwrap();
         let deser_xpriv = XPriv::from_base58(expected_xpriv).unwrap();
 
-        assert_eq!(&xpriv.key.to_bytes(), &deser_xpriv.key.to_bytes());
+        assert_eq!(
+            &xpriv.key.to_secret_bytes(),
+            &deser_xpriv.key.to_secret_bytes()
+        );
         assert_eq!(xpriv.to_base58().as_str(), expected_xpriv);
-        assert_eq!(&xpub.key.to_sec1_bytes(), &deser_xpub.key.to_sec1_bytes());
+        assert_eq!(&xpub.key.serialize(), &deser_xpub.key.serialize());
         assert_eq!(xpub.to_base58(), expected_xpub);
 
         let descendants = [
@@ -711,7 +708,7 @@ mod test {
         let child = xpriv.derive_child(33).unwrap();
 
         let (sig, recovery_id): (ecdsa::Signature, ecdsa::RecoveryId) =
-            child.sign_digest(|d: &mut Hash256| *d = digest.clone());
+            child.sign_digest_recoverable(digest.clone()).unwrap();
 
         let child_xpub = child.verify_key();
         child_xpub
@@ -725,9 +722,10 @@ mod test {
             .unwrap();
 
         let recovered =
-            ecdsa::VerifyingKey::recover_from_digest(digest, &sig, recovery_id).unwrap();
+            crate::curve::recover(&crate::curve::finalize_digest(digest), &sig, recovery_id)
+                .unwrap();
 
-        assert_eq!(&recovered.to_sec1_bytes(), &child_xpub.key.to_sec1_bytes());
+        assert_eq!(recovered.serialize(), child_xpub.key.serialize());
     }
 
     #[test]
@@ -760,8 +758,8 @@ mod test {
         ),
     ];
 
-    fn bip328_aggregate_key(hex_pubkey: &str) -> ecdsa::VerifyingKey {
-        ecdsa::VerifyingKey::from_sec1_bytes(&hex::decode(hex_pubkey).unwrap()).unwrap()
+    fn bip328_aggregate_key(hex_pubkey: &str) -> PublicKey {
+        PublicKey::from_slice(&hex::decode(hex_pubkey).unwrap()).unwrap()
     }
 
     #[test]

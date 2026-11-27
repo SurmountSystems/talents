@@ -5,8 +5,8 @@ use crate::{
     primitives::{Hint, KeyFingerprint, XKeyInfo},
     xkeys::{Parent, SEED, XPriv, XPub},
 };
-use coins_core::hashes::{Hash160, Hash160Digest, MarkedDigest, MarkedDigestOutput};
-use k256::ecdsa;
+use secp256k1::{PublicKey, SecretKey};
+use talents_core::hashes::{Hash160, Hash160Digest, MarkedDigest, MarkedDigestOutput};
 
 /// Derived keys are keys coupled with their derivation. We use this trait to
 /// check ancestry relationships between keys.
@@ -62,8 +62,8 @@ impl AsRef<XKeyInfo> for DerivedXPriv {
     }
 }
 
-impl AsRef<ecdsa::SigningKey> for DerivedXPriv {
-    fn as_ref(&self) -> &ecdsa::SigningKey {
+impl AsRef<SecretKey> for DerivedXPriv {
+    fn as_ref(&self) -> &SecretKey {
         &self.xpriv.key
     }
 }
@@ -185,8 +185,8 @@ impl AsRef<XKeyInfo> for DerivedXPub {
     }
 }
 
-impl AsRef<ecdsa::VerifyingKey> for DerivedXPub {
-    fn as_ref(&self) -> &ecdsa::VerifyingKey {
+impl AsRef<PublicKey> for DerivedXPub {
+    fn as_ref(&self) -> &PublicKey {
         &self.xpub.key
     }
 }
@@ -232,14 +232,14 @@ impl DerivedXPub {
 
 /// A Pubkey with its derivation. Primarily used by PSBT.
 pub struct DerivedPubkey {
-    key: ecdsa::VerifyingKey,
+    key: PublicKey,
     derivation: KeyDerivation,
 }
 
 impl std::fmt::Debug for DerivedPubkey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DerivedPubkey")
-            .field("public key", &self.key.to_sec1_bytes())
+            .field("public key", &self.key.serialize())
             .field("key fingerprint", &self.fingerprint())
             .field("derivation", &self.derivation)
             .finish()
@@ -254,21 +254,21 @@ impl DerivedKey for DerivedPubkey {
     }
 }
 
-impl AsRef<ecdsa::VerifyingKey> for DerivedPubkey {
-    fn as_ref(&self) -> &ecdsa::VerifyingKey {
+impl AsRef<PublicKey> for DerivedPubkey {
+    fn as_ref(&self) -> &PublicKey {
         &self.key
     }
 }
 
 impl DerivedPubkey {
     /// Instantiate a new `DerivedPubkey`
-    pub const fn new(key: ecdsa::VerifyingKey, derivation: KeyDerivation) -> Self {
+    pub const fn new(key: PublicKey, derivation: KeyDerivation) -> Self {
         Self { key, derivation }
     }
 
     /// Return the hash of the compressed (Sec1) pubkey.
     pub fn pubkey_hash160(&self) -> Hash160Digest {
-        Hash160::digest_marked(self.key.to_sec1_bytes().as_ref())
+        Hash160::digest_marked(self.key.serialize().as_ref())
     }
 
     /// The fingerprint is the first 4 bytes of the HASH160 of the serialized
@@ -285,7 +285,7 @@ impl DerivedPubkey {
 mod test {
     use super::*;
     use crate::{BIP32_HARDEN, path::DerivationPath, prelude::*, primitives::*};
-    use coins_core::hashes::*;
+    use talents_core::hashes::*;
 
     use hex;
 
@@ -555,11 +555,12 @@ mod test {
             97, 206, 144, 29, 30, 226, 44, 82, 16, 153, 76, 35, 95, 23, 221, 179, 195, 30, 15, 192,
             236, 151, 48, 236, 240, 132, 206, 1,
         ];
-        assert_eq!(sig.to_der().as_bytes(), der_sig);
-        assert_eq!(&sig, &Signature::from_der(&der_sig).unwrap());
-        assert_eq!(&sig.r().to_bytes()[..], &rsv[..32]);
-        assert_eq!(&sig.s().to_bytes()[..], &rsv[32..64]);
-        assert_eq!(recovery_id.to_byte(), rsv[64]);
+        assert_eq!(sig.serialize_der().as_ref(), der_sig.as_slice());
+        assert_eq!(sig, Signature::from_der(&der_sig).unwrap());
+        let compact = sig.serialize_compact();
+        assert_eq!(&compact[..32], &rsv[..32]);
+        assert_eq!(&compact[32..64], &rsv[32..64]);
+        assert_eq!(recovery_id.to_u8(), rsv[64]);
     }
 
     #[test]

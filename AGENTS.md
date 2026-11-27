@@ -1,8 +1,8 @@
-# coins
+# Talents
 
 ## AI-written tests
 
-Every test Claude writes goes in the crate's `ai-tests/` directory, never
+Every test an agent writes goes in the crate's `ai-tests/` directory, never
 inline in `src/`. Each file there is a submodule of the source file it
 tests, declared at the bottom of that source file. For
 `src/common/status.rs`:
@@ -23,5 +23,5 @@ mod ai_tests;
   a file at `src/transports/native/hid.rs` declares
   `#[path = "../../../ai-tests/transports/native/hid.rs"]`.
 - Human-written tests stay where they are: inline `mod test` blocks and
-  the crate's `tests/` directory. Do not add Claude-written tests to
+  the crate's `tests/` directory. Do not add AI-written tests to
   either.

@@ -1,8 +1,8 @@
 [package]
-name = "coins-core"
+name = "talents-core"
 categories = ["cryptography::cryptocurrencies"]
 keywords = ["bitcoin", "cryptocurrency", "blockchain"]
-description = "Core library for coins-bip32 and coins-bip39"
+description = "Core library for talents-bip32 and talents-bip39"
 
 version.workspace =  true
 edition.workspace =  true

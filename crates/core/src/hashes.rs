@@ -110,7 +110,7 @@ impl digest::Update for Hash256 {
 }
 
 #[derive(Clone, Default)]
-/// A `Digest` implementation that performs Bitcoin style double-sha256
+/// A `Digest` implementation that performs RIPEMD-160 of SHA-256
 pub struct Hash160(sha2::Sha256);
 
 impl std::io::Write for Hash160 {

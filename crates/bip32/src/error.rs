@@ -1,16 +1,11 @@
-use k256::ecdsa;
 use thiserror::Error;
 
 /// Errors for this library
 #[derive(Debug, Error)]
 pub enum Bip32Error {
-    /// Error bubbled up from the backend
-    #[error("k256 error")]
-    BackendError(/*#[from]*/ ecdsa::Error),
-
-    /// Error bubbled up from the backend
-    #[error("elliptic curve error")]
-    EllipticCurveError(/*#[from]*/ k256::elliptic_curve::Error),
+    /// Error bubbled up from the secp256k1 backend.
+    #[error("secp256k1 error")]
+    BackendError(#[from] secp256k1::Error),
 
     /// Error bubbled up froom std::io
     #[error(transparent)]
@@ -59,18 +54,6 @@ pub enum Bip32Error {
     /// Parsing an string derivation failed because an index string was malformatted
     #[error("Malformatted index during derivation: {0}")]
     MalformattedDerivation(String),
-}
-
-impl From<ecdsa::Error> for Bip32Error {
-    fn from(e: ecdsa::Error) -> Self {
-        Self::BackendError(e)
-    }
-}
-
-impl From<k256::elliptic_curve::Error> for Bip32Error {
-    fn from(e: k256::elliptic_curve::Error) -> Self {
-        Self::EllipticCurveError(e)
-    }
 }
 
 impl From<std::convert::Infallible> for Bip32Error {
